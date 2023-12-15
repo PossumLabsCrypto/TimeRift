@@ -13,8 +13,22 @@ error InvalidInput();
 error InvalidOutput();
 error InsufficientRewards();
 error MinimumStakeTime();
+error NotWhitelisted();
+
+/// @title TimeRift
+/// @dev This contract allows users to stake, unstake, convert and distribute tokens.
+/// @author Possum Labs
 
 contract TimeRift is ReentrancyGuard, Ownable {
+    /// @notice The constructor function initializes the contract.
+    /// @dev The constructor function is only called once when the contract is deployed.
+    /// @param _FLASH_ADDRESS The address of the Flash token.
+    /// @param _PSM_ADDRESS The address of the PSM token.
+    /// @param _FLASH_TREASURY The address of the Flash treasury.
+    /// @param _PSM_TREASURY The address of the PSM treasury.
+    /// @param _MINIMUM_STAKE_DURATION The minimum stake duration in seconds.
+    /// @param _ENERGY_BOLTS_ACCRUAL_RATE The APR rate at which Energy Bolts accrue based on the conversion balance.
+    /// @param _WITHDRAW_PENALTY_PERCENT The percentage penalty for withdrawing staked tokens.
     constructor(
         address _FLASH_ADDRESS,
         address _PSM_ADDRESS,
@@ -109,18 +123,23 @@ contract TimeRift is ReentrancyGuard, Ownable {
     );
     event EnergyBoltsDistributed(
         address indexed user,
+        uint256 amountToUser,
         address indexed destination,
-        uint256 amount
+        uint256 amountToDestination
     );
 
     // ============================================
     // ==           STAKING & UNSTAKING          ==
     // ============================================
+
+    /// @notice Stakes tokens for the user.
+    /// @dev The function collects energy bolts for the user and updates their stake.
+    /// @param _amount The amount of tokens to stake.
     function stake(uint256 _amount) external nonReentrant {
+        /// @dev Check if the inputs are valid and if enough PSM is available to serve the stake.
         if (_amount == 0) {
             revert InvalidInput();
         }
-
         available_PSM =
             IERC20(PSM_ADDRESS).balanceOf(address(this)) -
             conversionBalanceTotal;
@@ -131,49 +150,66 @@ contract TimeRift is ReentrancyGuard, Ownable {
             _amount = available_PSM;
         }
 
+        /// @dev Collect the user's energy bolts.
         _collectEnergyBolts(msg.sender);
 
+        /// @dev Update the user's stake information.
         Stake storage userStake = stakes[msg.sender];
         userStake.lastStakeTime = block.timestamp;
         userStake.stakedTokens += _amount;
         userStake.conversionBalance += _amount;
 
+        /// @dev Update the global stake information.
         stakedTokensTotal += _amount;
 
+        /// @dev Transfer the staked token fro the user to the contract.
         IERC20(FLASH_ADDRESS).safeTransferFrom(
             msg.sender,
             address(this),
             _amount
         );
 
+        /// @dev Emit the event that tokens have been staked successfully.
         emit TokenStaked(msg.sender, _amount);
     }
 
+    /// @notice Withdraws staked tokens for the user.
+    /// @dev The function calculates the penalty for withdrawing staked tokens and updates the user's stake.
     function withdrawAndExit() external nonReentrant {
+        /// @dev Read the user's stake into storage and check if amount is larger than zero.
         Stake storage userStake = stakes[msg.sender];
         uint256 userStakedTokens = userStake.stakedTokens;
         if (userStakedTokens == 0) {
             revert InvalidOutput();
         }
 
+        /// @dev Calculate the withdrawal penalty and amounts of tokens to be sent out by the contract.
         uint256 penalty = (WITHDRAW_PENALTY_PERCENT * userStakedTokens) / 100;
         uint256 withdrawAmount = userStakedTokens - penalty;
         uint256 userConversionBalance = userStake.conversionBalance;
 
+        /// @dev Update the global and user specific staking information.
         stakedTokensTotal -= userStakedTokens;
         delete stakes[msg.sender];
 
+        /// @dev Transfer the staked token to the user and the penalty to the external destination
         IERC20(FLASH_ADDRESS).safeTransfer(msg.sender, withdrawAmount);
         IERC20(FLASH_ADDRESS).safeTransfer(FLASH_TREASURY, penalty);
 
+        /// @dev Transfer the accumulated conversion balance in PSM to the Possum Treasury.
         IERC20(PSM_ADDRESS).safeTransfer(PSM_TREASURY, userConversionBalance);
 
+        /// @dev Emit the event that a user has withdrawn their stake.
         emit TokenWithdrawn(msg.sender, userStakedTokens);
     }
 
     // ============================================
     // ==       DISTRIBUTION & CONVERSION        ==
     // ============================================
+
+    /// @notice Collects energy bolts for the user.
+    /// @dev The function calculates the energy bolts collected by the user and updates their stake.
+    /// @param _user The address of the user.
     function _collectEnergyBolts(address _user) private {
         Stake storage userStake = stakes[_user];
 
@@ -192,17 +228,26 @@ contract TimeRift is ReentrancyGuard, Ownable {
         );
     }
 
+    /// @notice Distributes PSM tokens (energy bolts) to a destination.
+    /// @dev The function calculates the energy bolts to distribute and updates the user's stake.
+    /// @param _destination The address of the destination.
+    /// @param _amount The amount of energy bolts to distribute.
     function distributeEnergyBolts(
         address _destination,
         uint256 _amount
     ) external nonReentrant {
+        /// @dev Check if the inputs are valid and if the destination is whitelisted.
         if (_amount == 0) {
             revert InvalidInput();
         }
         if (_destination == address(0)) {
             revert InvalidInput();
         }
+        if (!whitelist[_destination]) {
+            revert NotWhitelisted();
+        }
 
+        /// @dev Check if there is still PSM available in the contract to be distributed.
         available_PSM =
             IERC20(PSM_ADDRESS).balanceOf(address(this)) -
             conversionBalanceTotal;
@@ -210,18 +255,28 @@ contract TimeRift is ReentrancyGuard, Ownable {
             revert InsufficientRewards();
         }
 
+        /// @dev Collect the user's energy bolts.
         _collectEnergyBolts(msg.sender);
 
+        /// @dev Check if the user has sufficient energy bolts.
         Stake storage userStake = stakes[msg.sender];
         if (userStake.energyBolts < _amount) {
             revert InvalidInput();
         }
 
+        /// @dev Calculate the correct amount of conversion balance increase and distributed tokens.
+        /// @dev The increase of the user's conversion balance has priority over distributing tokens to the destination.
         if (available_PSM <= _amount * 2) {
             if (available_PSM <= _amount) {
-                _amount = available_PSM;
-                userStake.conversionBalance += _amount;
-                conversionBalanceTotal += _amount;
+                userStake.conversionBalance += available_PSM;
+                conversionBalanceTotal += available_PSM;
+
+                emit EnergyBoltsDistributed(
+                    msg.sender,
+                    available_PSM,
+                    _destination,
+                    0
+                );
             } else {
                 uint256 rest = available_PSM - _amount;
 
@@ -229,18 +284,33 @@ contract TimeRift is ReentrancyGuard, Ownable {
                 conversionBalanceTotal += _amount;
                 PSM_distributed += rest;
                 IERC20(PSM_ADDRESS).safeTransfer(_destination, rest);
+
+                emit EnergyBoltsDistributed(
+                    msg.sender,
+                    _amount,
+                    _destination,
+                    rest
+                );
             }
         } else {
             userStake.conversionBalance += _amount;
             conversionBalanceTotal += _amount;
             PSM_distributed += _amount;
             IERC20(PSM_ADDRESS).safeTransfer(_destination, _amount);
-        }
 
-        emit EnergyBoltsDistributed(msg.sender, _destination, _amount);
+            emit EnergyBoltsDistributed(
+                msg.sender,
+                _amount,
+                _destination,
+                _amount
+            );
+        }
     }
 
+    /// @notice Converts staked tokens to PSM tokens.
+    /// @dev The function sends the user's staked tokens to external treasury and PSM to the user's wallet.
     function convertToPSM() external nonReentrant {
+        /// @dev Load the user's data into storage and check if the conversion conditions are met.
         Stake storage userStake = stakes[msg.sender];
         uint256 conversionBalance = userStake.conversionBalance;
         uint256 stakedTokens = userStake.stakedTokens;
@@ -254,31 +324,44 @@ contract TimeRift is ReentrancyGuard, Ownable {
             revert MinimumStakeTime();
         }
 
+        /// @dev Update global and user's stake information.
         conversionBalanceTotal -= conversionBalance;
         stakedTokensTotal -= stakedTokens;
         delete stakes[msg.sender];
 
+        /// @dev Transfer the staked token to the external destination and PSM to the user.
         IERC20(FLASH_ADDRESS).safeTransfer(FLASH_TREASURY, stakedTokens);
         IERC20(PSM_ADDRESS).safeTransfer(msg.sender, conversionBalance);
 
+        /// @dev Emit the event that the conversion was successful.
         emit Converted(msg.sender, conversionBalance);
     }
 
     // ============================================
     // ==            OWNER FUNCTIONS             ==
     // ============================================
+
+    /// @notice Adds an address to the whitelist.
+    /// @dev The function updates the whitelist mapping.
+    /// @param _destination The address to add to the whitelist.
     function addToWhitelist(address _destination) external onlyOwner {
         whitelist[_destination] = true;
 
         emit WhitelistAdded(_destination);
     }
 
+    /// @notice Removes an address from the whitelist.
+    /// @dev The function updates the whitelist mapping.
+    /// @param _destination The address to remove from the whitelist.
     function removeFromWhitelist(address _destination) external onlyOwner {
         whitelist[_destination] = false;
 
         emit WhitelistRemoved(_destination);
     }
 
+    /// @notice Withdraws an ERC20 token that is not the staked token nor the reward token.
+    /// @dev The function transfers a token from the contract to the owner.
+    /// @param _token The address of the token to rescue.
     function rescueToken(address _token) external onlyOwner {
         if (_token == FLASH_ADDRESS || _token == PSM_ADDRESS) {
             revert InvalidInput();
@@ -295,6 +378,10 @@ contract TimeRift is ReentrancyGuard, Ownable {
     // ============================================
     // ==                GENERAL                 ==
     // ============================================
+
+    /// @notice Gets the available PSM balance of the contract.
+    /// @dev The function calculates the available PSM balance for staking or distributing.
+    /// @return availableBalance The available PSM balance.
     function getAvailablePSM()
         external
         view
@@ -305,6 +392,10 @@ contract TimeRift is ReentrancyGuard, Ownable {
             conversionBalanceTotal;
     }
 
+    /// @notice Gets the energy bolts of a user at the current moment.
+    /// @dev The function calculates the energy bolts of a user.
+    /// @param _user The address of the user.
+    /// @return userEnergyBolts The energy bolts of the user.
     function getUserEnergyBolts(
         address _user
     ) external view returns (uint256 userEnergyBolts) {
@@ -318,6 +409,10 @@ contract TimeRift is ReentrancyGuard, Ownable {
         userEnergyBolts = userStake.energyBolts + energyBoltsCollected;
     }
 
+    /// @notice Gets the balance of a token in the contract.
+    /// @dev The function retrieves the balance of a token.
+    /// @param _token The address of the token.
+    /// @return balance The balance of the token.
     function getBalanceOfToken(
         address _token
     ) external view returns (uint256 balance) {
