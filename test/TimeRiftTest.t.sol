@@ -8,6 +8,7 @@ import {MintBurnToken} from "../src/MintBurnToken.sol";
 contract TimeRiftTest is Test {
     MintBurnToken FLASH_Token;
     MintBurnToken PSM_Token;
+    MintBurnToken randomToken;
     TimeRift timeRift;
 
     address FLASH_Treasury;
@@ -15,6 +16,7 @@ contract TimeRiftTest is Test {
 
     address F_token;
     address P_token;
+    address R_token;
 
     uint256 minStakeDuration;
     uint256 energyBoltsAccrualRate;
@@ -31,6 +33,7 @@ contract TimeRiftTest is Test {
         // deploy the test tokens
         FLASH_Token = new MintBurnToken("Flashstake", "FLASH");
         PSM_Token = new MintBurnToken("Possum", "PSM");
+        randomToken = new MintBurnToken("Rando", "RND");
 
         // define the constructor inputs
         FLASH_Treasury = 0xEeB3f4E245aC01792ECd549d03b91541BC800b31;
@@ -38,6 +41,7 @@ contract TimeRiftTest is Test {
 
         F_token = address(FLASH_Token);
         P_token = address(PSM_Token);
+        R_token = address(randomToken);
 
         minStakeDuration = 7776000;
         energyBoltsAccrualRate = 150;
@@ -75,79 +79,102 @@ contract TimeRiftTest is Test {
 
         assertEq(timeRift.stakedTokensTotal(), 0);
         assertEq(timeRift.PSM_distributed(), 0);
-        assertEq(timeRift.conversionBalanceTotal(), 0);
+        assertEq(timeRift.exchangeBalanceTotal(), 0);
         assertEq(timeRift.available_PSM(), 0);
     }
 
     // // ============================================
     // // Test Staking success and failure cases including _collectEnergyBolts test
-    // function testStake_Failure() public {
-    //     timeRift.stake(100);
+    // function testStake_Success() public {
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
-
-    //     assertFalse(totalStaked == 100);
     // }
 
-    // function testStake_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
+    // // ============================================
+    // function testStake_Failure() public {
+
+    // }
+
+    // // ============================================
+    // function test_collectEnergyBolts_Success() public {
+
+    // }
+
+    // // ============================================
+    // function test_collectEnergyBolts_Failure() public {
+
     // }
 
     // // ============================================
     // // Test withdraw/Exit success and failure cases
-    // function testWithdrawAndExit_Failure() public {
-    //     timeRift.stake(100);
+    // function testWithdrawAndExit_Success() public {
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
-
-    //     assertFalse(totalStaked == 100);
     // }
 
-    // function testWithdrawAndExit_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
+    // // ============================================
+    // function testWithdrawAndExit_Failure() public {
+
     // }
 
     // // ============================================
     // // Test distributeEnergyBolts success and failure cases
-    // function testDistributeEnergyBolts_Failure() public {
-    //     timeRift.stake(100);
-
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
-
-    //     assertFalse(totalStaked == 100);
-    // }
-
     // function testDistributeEnergyBolts_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
+
     // }
 
     // // ============================================
-    // // Test convertToPSM success and failure cases
-    // function testConvertToPSM_Failure() public {
-    //     timeRift.stake(100);
+    // function testDistributeEnergyBolts_Failure() public {
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
-
-    //     assertFalse(totalStaked == 100);
     // }
 
-    // function testConvertToPSM_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
+    // // ============================================
+    // // Test exchangeToPSM success and failure cases
+    // function testExchangeToPSM_Success() public {
+    //     vm.startPrank(owner);
+
+    //     uint256 FLASH_amount = 123000;
+
+    //     FLASH_Token.mint(address(timeRift), FLASH_amount);
+
+    //     uint256 user_exchangeBalance = 12;
+
+    //     // Call the function using low-level call
+    //     (bool success, ) = address(timeRift).call(
+    //         abi.encodeWithSignature("exchangeToPSM()")
+    //     );
+
+    //     // Check that the call was successful
+    //     assertTrue(success, "Reverted the token transaction");
+    //     assertEq(
+    //         FLASH_Token.balanceOf(address(timeRift)),
+    //         FLASH_amount - user_exchangeBalance
+    //     );
+    //     assertEq(PSM_Token.balanceOf(address(this)), FLASH_amount);
+
+    //     vm.stopPrank();
     // }
+
+    // // ============================================
+    // function testExchangeToPSM_Failure() public {
+
+    // }
+
+    // ================================================
+    // Test addToWhitelist success and failure cases
+    function testAddToWhitelist_Success() public {
+        vm.prank(owner);
+        timeRift.addToWhitelist(whitelistOne);
+        assertTrue(
+            timeRift.whitelist(whitelistOne),
+            "whitelistOne was not added to the whitelist"
+        );
+    }
 
     // ============================================
-    // Test addToWhitelist success and failure cases
     function testAddToWhitelist_Failure() public {
         vm.startPrank(alice);
-        console.log(alice);
 
         // Check that Bob is not whitelisted before the function call
         assertTrue(!timeRift.whitelist(bob), "Bob was already whitelisted");
-        console.log(timeRift.whitelist(bob));
 
         // Call the function using low-level call
         (bool success, ) = address(timeRift).call(
@@ -159,77 +186,161 @@ contract TimeRiftTest is Test {
 
         // Check that Bob is still not whitelisted after the function call
         assertTrue(!timeRift.whitelist(bob), "Bob was added to the whitelist");
-        console.log(timeRift.whitelist(bob));
 
         vm.stopPrank();
     }
 
-    function testAddToWhitelist_Success() public {
-        vm.prank(owner);
-        timeRift.addToWhitelist(whitelistOne);
-        assertTrue(
-            timeRift.whitelist(whitelistOne),
-            "whitelistOne was not added to the whitelist"
+    // ================================================
+    // Test removeFromWhitelist success and failure cases
+    function testRemoveFromWhitelist_Success() public {
+        testAddToWhitelist_Success();
+
+        vm.startPrank(owner);
+
+        // Check that whitelistOne is whitelisted before the function call
+        assertTrue(timeRift.whitelist(whitelistOne), "Address not whitelisted");
+
+        // Call the function using low-level call
+        (bool success, ) = address(timeRift).call(
+            abi.encodeWithSignature(
+                "removeFromWhitelist(address)",
+                whitelistOne
+            )
         );
+
+        // Check that the call was successful
+        assertTrue(success, "Reverted the removal / caller not owner");
+
+        assertFalse(
+            timeRift.whitelist(whitelistOne),
+            "whitelistOne was not removed from the whitelist"
+        );
+
+        vm.stopPrank();
     }
 
     // // ============================================
-    // // Test removeFromWhitelist success and failure cases
-    // function testRemoveFromWhitelist_Failure() public {
-    //     timeRift.stake(100);
+    function testRemoveFromWhitelist_Failure() public {
+        testAddToWhitelist_Success();
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
+        vm.startPrank(alice);
 
-    //     assertFalse(totalStaked == 100);
-    // }
+        // Check that whitelistOne is whitelisted before the function call
+        assertTrue(timeRift.whitelist(whitelistOne), "Address not whitelisted");
 
-    // function testRemoveFromWhitelist_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
-    // }
+        // Call the function using low-level call
+        (bool success, ) = address(timeRift).call(
+            abi.encodeWithSignature(
+                "removeFromWhitelist(address)",
+                whitelistOne
+            )
+        );
 
-    // // ============================================
-    // function testRescueToken_Failure() public {
-    //     timeRift.stake(100);
+        // Check that the call was not successful
+        assertTrue(!success, "Reverted because non-owner");
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
+        // Check that whitelistOne is still on the whitelisted
+        assertTrue(
+            timeRift.whitelist(whitelistOne),
+            "WhitelistOne was removed from the whitelist"
+        );
 
-    //     assertFalse(totalStaked == 100);
-    // }
+        vm.stopPrank();
+    }
 
-    // // Test rescueToken success and failure cases
-    // function testRescueToken_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
-    // }
+    // ============================================
+    // Test rescueToken success and failure cases
+    function testRescueToken_Success() public {
+        vm.startPrank(owner);
 
-    // // ============================================
-    // // Test getAvailablePSM success and failure cases
-    // function testGetAvailablePSM_Failure() public {
-    //     timeRift.stake(100);
+        uint256 RND_amount = 1000;
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
+        randomToken.mint(address(timeRift), RND_amount);
 
-    //     assertFalse(totalStaked == 100);
-    // }
+        // Call the function using low-level call
+        (bool success, ) = address(timeRift).call(
+            abi.encodeWithSignature("rescueToken(address)", randomToken)
+        );
 
-    // function testGetAvailablePSM_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
-    // }
+        // Check that the call was successful
+        assertTrue(success, "Reverted the token transaction");
+        assertEq(randomToken.balanceOf(address(timeRift)), 0);
+        assertEq(randomToken.balanceOf(address(this)), RND_amount);
+
+        vm.stopPrank();
+    }
+
+    // ================================================
+    function testRescueToken_Failure() public {
+        vm.startPrank(owner);
+
+        // Test case: zero amount
+        // Call the function using low-level call
+        (bool success, ) = address(timeRift).call(
+            abi.encodeWithSignature("rescueToken(address)", randomToken)
+        );
+
+        // Check that the call was not successful
+        assertTrue(!success, "Token transfer was executed");
+        assertEq(randomToken.balanceOf(address(timeRift)), 0);
+        assertEq(randomToken.balanceOf(address(this)), 0);
+
+        // Test case: is PSM token
+        uint256 PSM_amount = 333;
+        PSM_Token.mint(address(timeRift), PSM_amount);
+
+        // Call the function using low-level call
+        (success, ) = address(timeRift).call(
+            abi.encodeWithSignature("rescueToken(address)", PSM_Token)
+        );
+
+        // Check that the call was not successful
+        assertTrue(!success, "Token transfer was executed");
+        assertEq(PSM_Token.balanceOf(address(timeRift)), PSM_amount);
+        assertEq(PSM_Token.balanceOf(address(this)), 0);
+
+        // Test case: is FLASH token
+        uint256 FLASH_amount = 555;
+        FLASH_Token.mint(address(timeRift), FLASH_amount);
+
+        // Call the function using low-level call
+        (success, ) = address(timeRift).call(
+            abi.encodeWithSignature("rescueToken(address)", FLASH_Token)
+        );
+
+        // Check that the call was not successful
+        assertTrue(!success, "Token transfer was executed");
+        assertEq(FLASH_Token.balanceOf(address(timeRift)), FLASH_amount);
+        assertEq(FLASH_Token.balanceOf(address(this)), 0);
+
+        // Test case: is not owner
+        uint256 RND_Amount = 1000;
+        randomToken.mint(address(timeRift), RND_Amount);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        // Call the function using low-level call
+        (success, ) = address(timeRift).call(
+            abi.encodeWithSignature("rescueToken(address)", randomToken)
+        );
+
+        // Check that the call was not successful
+        assertTrue(!success, "Token transfer was executed");
+
+        assertEq(randomToken.balanceOf(address(timeRift)), RND_Amount);
+        assertEq(randomToken.balanceOf(address(this)), 0);
+
+        vm.stopPrank();
+    }
 
     // // ============================================
     // // Test getUserEnergyBolts success and failure cases
-    // function testGetUserEnergyBolts_Failure() public {
-    //     timeRift.stake(100);
+    // function testGetUserEnergyBolts_Success() public {
 
-    //     uint256 totalStaked = timeRift.stakedTokensTotal();
-
-    //     assertFalse(totalStaked == 100);
     // }
 
-    // function testGetUserEnergyBolts_Success() public {
-    //     timeRift.stake(100);
-    //     assertEq(timeRift.stakedTokensTotal(), 100);
+    // // ============================================
+    // function testGetUserEnergyBolts_Failure() public {
+
     // }
 }

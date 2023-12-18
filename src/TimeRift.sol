@@ -16,7 +16,7 @@ error MinimumStakeTime();
 error NotWhitelisted();
 
 /// @title TimeRift
-/// @dev This contract allows users to stake, unstake, convert and distribute tokens.
+/// @dev This contract allows users to stake, unstake, exchange and distribute tokens.
 /// @author Possum Labs
 
 contract TimeRift is ReentrancyGuard, Ownable {
@@ -27,7 +27,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
     /// @param _FLASH_TREASURY The address of the Flash treasury.
     /// @param _PSM_TREASURY The address of the PSM treasury.
     /// @param _MINIMUM_STAKE_DURATION The minimum stake duration in seconds.
-    /// @param _ENERGY_BOLTS_ACCRUAL_RATE The APR rate at which Energy Bolts accrue based on the conversion balance.
+    /// @param _ENERGY_BOLTS_ACCRUAL_RATE The APR rate at which Energy Bolts accrue based on the exchange balance.
     /// @param _WITHDRAW_PENALTY_PERCENT The percentage penalty for withdrawing staked tokens.
     constructor(
         address _FLASH_ADDRESS,
@@ -92,7 +92,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
     uint256 public stakedTokensTotal;
     uint256 public PSM_distributed;
-    uint256 public conversionBalanceTotal;
+    uint256 public exchangeBalanceTotal;
     uint256 public available_PSM;
 
     struct Stake {
@@ -100,7 +100,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         uint256 lastCollectTime;
         uint256 stakedTokens;
         uint256 energyBolts;
-        uint256 conversionBalance;
+        uint256 exchangeBalance;
     }
 
     mapping(address => Stake) public stakes;
@@ -115,7 +115,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
     event TokenStaked(address indexed user, uint256 amount);
     event TokenWithdrawn(address indexed user, uint256 amount);
 
-    event Converted(address indexed user, uint256 amount);
+    event Exchanged(address indexed user, uint256 amount);
     event EnergyBoltsCollected(
         address indexed user,
         uint256 amount,
@@ -131,7 +131,6 @@ contract TimeRift is ReentrancyGuard, Ownable {
     // ============================================
     // ==           STAKING & UNSTAKING          ==
     // ============================================
-
     /// @notice Stakes tokens for the user.
     /// @dev The function collects energy bolts for the user and updates their stake.
     /// @param _amount The amount of tokens to stake.
@@ -142,7 +141,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         }
         available_PSM =
             IERC20(PSM_ADDRESS).balanceOf(address(this)) -
-            conversionBalanceTotal;
+            exchangeBalanceTotal;
         if (available_PSM == 0) {
             revert InsufficientRewards();
         }
@@ -157,7 +156,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         Stake storage userStake = stakes[msg.sender];
         userStake.lastStakeTime = block.timestamp;
         userStake.stakedTokens += _amount;
-        userStake.conversionBalance += _amount;
+        userStake.exchangeBalance += _amount;
 
         /// @dev Update the global stake information.
         stakedTokensTotal += _amount;
@@ -186,7 +185,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         /// @dev Calculate the withdrawal penalty and amounts of tokens to be sent out by the contract.
         uint256 penalty = (WITHDRAW_PENALTY_PERCENT * userStakedTokens) / 100;
         uint256 withdrawAmount = userStakedTokens - penalty;
-        uint256 userConversionBalance = userStake.conversionBalance;
+        uint256 userExchangeBalance = userStake.exchangeBalance;
 
         /// @dev Update the global and user specific staking information.
         stakedTokensTotal -= userStakedTokens;
@@ -196,17 +195,16 @@ contract TimeRift is ReentrancyGuard, Ownable {
         IERC20(FLASH_ADDRESS).safeTransfer(msg.sender, withdrawAmount);
         IERC20(FLASH_ADDRESS).safeTransfer(FLASH_TREASURY, penalty);
 
-        /// @dev Transfer the accumulated conversion balance in PSM to the Possum Treasury.
-        IERC20(PSM_ADDRESS).safeTransfer(PSM_TREASURY, userConversionBalance);
+        /// @dev Transfer the accumulated exchange balance in PSM to the Possum Treasury.
+        IERC20(PSM_ADDRESS).safeTransfer(PSM_TREASURY, userExchangeBalance);
 
         /// @dev Emit the event that a user has withdrawn their stake.
         emit TokenWithdrawn(msg.sender, userStakedTokens);
     }
 
     // ============================================
-    // ==       DISTRIBUTION & CONVERSION        ==
+    // ==       DISTRIBUTION & EXCHANGE        ==
     // ============================================
-
     /// @notice Collects energy bolts for the user.
     /// @dev The function calculates the energy bolts collected by the user and updates their stake.
     /// @param _user The address of the user.
@@ -250,7 +248,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         /// @dev Check if there is still PSM available in the contract to be distributed.
         available_PSM =
             IERC20(PSM_ADDRESS).balanceOf(address(this)) -
-            conversionBalanceTotal;
+            exchangeBalanceTotal;
         if (available_PSM == 0) {
             revert InsufficientRewards();
         }
@@ -264,12 +262,12 @@ contract TimeRift is ReentrancyGuard, Ownable {
             revert InvalidInput();
         }
 
-        /// @dev Calculate the correct amount of conversion balance increase and distributed tokens.
-        /// @dev The increase of the user's conversion balance has priority over distributing tokens to the destination.
+        /// @dev Calculate the correct amount of exchange balance increase and distributed tokens.
+        /// @dev The increase of the user's exchange balance has priority over distributing tokens to the destination.
         if (available_PSM <= _amount * 2) {
             if (available_PSM <= _amount) {
-                userStake.conversionBalance += available_PSM;
-                conversionBalanceTotal += available_PSM;
+                userStake.exchangeBalance += available_PSM;
+                exchangeBalanceTotal += available_PSM;
 
                 emit EnergyBoltsDistributed(
                     msg.sender,
@@ -280,8 +278,8 @@ contract TimeRift is ReentrancyGuard, Ownable {
             } else {
                 uint256 rest = available_PSM - _amount;
 
-                userStake.conversionBalance += _amount;
-                conversionBalanceTotal += _amount;
+                userStake.exchangeBalance += _amount;
+                exchangeBalanceTotal += _amount;
                 PSM_distributed += rest;
                 IERC20(PSM_ADDRESS).safeTransfer(_destination, rest);
 
@@ -293,8 +291,8 @@ contract TimeRift is ReentrancyGuard, Ownable {
                 );
             }
         } else {
-            userStake.conversionBalance += _amount;
-            conversionBalanceTotal += _amount;
+            userStake.exchangeBalance += _amount;
+            exchangeBalanceTotal += _amount;
             PSM_distributed += _amount;
             IERC20(PSM_ADDRESS).safeTransfer(_destination, _amount);
 
@@ -307,15 +305,15 @@ contract TimeRift is ReentrancyGuard, Ownable {
         }
     }
 
-    /// @notice Converts staked tokens to PSM tokens.
+    /// @notice Exchange staked tokens to PSM tokens.
     /// @dev The function sends the user's staked tokens to external treasury and PSM to the user's wallet.
-    function convertToPSM() external nonReentrant {
-        /// @dev Load the user's data into storage and check if the conversion conditions are met.
+    function exchangeToPSM() external nonReentrant {
+        /// @dev Load the user's data into storage and check if the exchange conditions are met.
         Stake storage userStake = stakes[msg.sender];
-        uint256 conversionBalance = userStake.conversionBalance;
+        uint256 exchangeBalance = userStake.exchangeBalance;
         uint256 stakedTokens = userStake.stakedTokens;
 
-        if (conversionBalance == 0) {
+        if (exchangeBalance == 0) {
             revert InvalidInput();
         }
         if (
@@ -325,22 +323,21 @@ contract TimeRift is ReentrancyGuard, Ownable {
         }
 
         /// @dev Update global and user's stake information.
-        conversionBalanceTotal -= conversionBalance;
+        exchangeBalanceTotal -= exchangeBalance;
         stakedTokensTotal -= stakedTokens;
         delete stakes[msg.sender];
 
         /// @dev Transfer the staked token to the external destination and PSM to the user.
         IERC20(FLASH_ADDRESS).safeTransfer(FLASH_TREASURY, stakedTokens);
-        IERC20(PSM_ADDRESS).safeTransfer(msg.sender, conversionBalance);
+        IERC20(PSM_ADDRESS).safeTransfer(msg.sender, exchangeBalance);
 
-        /// @dev Emit the event that the conversion was successful.
-        emit Converted(msg.sender, conversionBalance);
+        /// @dev Emit the event that the exchange was successful.
+        emit Exchanged(msg.sender, exchangeBalance);
     }
 
     // ============================================
     // ==            OWNER FUNCTIONS             ==
     // ============================================
-
     /// @notice Adds an address to the whitelist.
     /// @dev The function updates the whitelist mapping.
     /// @param _destination The address to add to the whitelist.
@@ -363,7 +360,11 @@ contract TimeRift is ReentrancyGuard, Ownable {
     /// @dev The function transfers a token from the contract to the owner.
     /// @param _token The address of the token to rescue.
     function rescueToken(address _token) external onlyOwner {
-        if (_token == FLASH_ADDRESS || _token == PSM_ADDRESS) {
+        if (
+            _token == FLASH_ADDRESS ||
+            _token == PSM_ADDRESS ||
+            _token == address(0)
+        ) {
             revert InvalidInput();
         }
 
@@ -378,7 +379,6 @@ contract TimeRift is ReentrancyGuard, Ownable {
     // ============================================
     // ==                GENERAL                 ==
     // ============================================
-
     /// @notice Gets the available PSM balance of the contract.
     /// @dev The function calculates the available PSM balance for staking or distributing.
     /// @return availableBalance The available PSM balance.
@@ -389,7 +389,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
     {
         availableBalance =
             IERC20(PSM_ADDRESS).balanceOf(address(this)) -
-            conversionBalanceTotal;
+            exchangeBalanceTotal;
     }
 
     /// @notice Gets the energy bolts of a user at the current moment.
