@@ -12,6 +12,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 error InvalidInput();
 error InvalidOutput();
 error InsufficientRewards();
+error InsufficientEnergyBolts();
+error InsufficientExchangeBalance();
 error MinimumStakeTime();
 error NotWhitelisted();
 
@@ -93,7 +95,6 @@ contract TimeRift is ReentrancyGuard, Ownable {
     uint256 public stakedTokensTotal;
     uint256 public PSM_distributed;
     uint256 public exchangeBalanceTotal;
-    uint256 public available_PSM;
 
     struct Stake {
         uint256 lastStakeTime;
@@ -139,9 +140,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         if (_amount == 0) {
             revert InvalidInput();
         }
-        available_PSM =
-            IERC20(PSM_ADDRESS).balanceOf(address(this)) -
-            exchangeBalanceTotal;
+        uint256 available_PSM = getAvailablePSM();
         if (available_PSM == 0) {
             revert InsufficientRewards();
         }
@@ -160,6 +159,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
         /// @dev Update the global stake information.
         stakedTokensTotal += _amount;
+        exchangeBalanceTotal += _amount;
 
         /// @dev Transfer the staked token fro the user to the contract.
         IERC20(FLASH_ADDRESS).safeTransferFrom(
@@ -189,6 +189,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
         /// @dev Update the global and user specific staking information.
         stakedTokensTotal -= userStakedTokens;
+        exchangeBalanceTotal -= userExchangeBalance;
         delete stakes[msg.sender];
 
         /// @dev Transfer the staked token to the user and the penalty to the external destination
@@ -246,9 +247,8 @@ contract TimeRift is ReentrancyGuard, Ownable {
         }
 
         /// @dev Check if there is still PSM available in the contract to be distributed.
-        available_PSM =
-            IERC20(PSM_ADDRESS).balanceOf(address(this)) -
-            exchangeBalanceTotal;
+        uint256 available_PSM = getAvailablePSM();
+
         if (available_PSM == 0) {
             revert InsufficientRewards();
         }
@@ -256,10 +256,15 @@ contract TimeRift is ReentrancyGuard, Ownable {
         /// @dev Collect the user's energy bolts.
         _collectEnergyBolts(msg.sender);
 
-        /// @dev Check if the user has sufficient energy bolts.
+        /// @dev Check if the user has a positive balance of Energy Bolts
         Stake storage userStake = stakes[msg.sender];
+        if (userStake.energyBolts == 0) {
+            revert InsufficientEnergyBolts();
+        }
+
+        /// @dev Check if the user has sufficient energy bolts & adjust input.
         if (userStake.energyBolts < _amount) {
-            revert InvalidInput();
+            _amount = userStake.energyBolts;
         }
 
         /// @dev Calculate the correct amount of exchange balance increase and distributed tokens.
@@ -268,6 +273,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
             if (available_PSM <= _amount) {
                 userStake.exchangeBalance += available_PSM;
                 exchangeBalanceTotal += available_PSM;
+                userStake.energyBolts -= available_PSM;
 
                 emit EnergyBoltsDistributed(
                     msg.sender,
@@ -280,6 +286,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
                 userStake.exchangeBalance += _amount;
                 exchangeBalanceTotal += _amount;
+                userStake.energyBolts -= _amount;
                 PSM_distributed += rest;
                 IERC20(PSM_ADDRESS).safeTransfer(_destination, rest);
 
@@ -293,6 +300,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         } else {
             userStake.exchangeBalance += _amount;
             exchangeBalanceTotal += _amount;
+            userStake.energyBolts -= _amount;
             PSM_distributed += _amount;
             IERC20(PSM_ADDRESS).safeTransfer(_destination, _amount);
 
@@ -314,7 +322,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         uint256 stakedTokens = userStake.stakedTokens;
 
         if (exchangeBalance == 0) {
-            revert InvalidInput();
+            revert InsufficientExchangeBalance();
         }
         if (
             userStake.lastStakeTime + MINIMUM_STAKE_DURATION > block.timestamp
@@ -382,11 +390,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
     /// @notice Gets the available PSM balance of the contract.
     /// @dev The function calculates the available PSM balance for staking or distributing.
     /// @return availableBalance The available PSM balance.
-    function getAvailablePSM()
-        external
-        view
-        returns (uint256 availableBalance)
-    {
+    function getAvailablePSM() public view returns (uint256 availableBalance) {
         availableBalance =
             IERC20(PSM_ADDRESS).balanceOf(address(this)) -
             exchangeBalanceTotal;
