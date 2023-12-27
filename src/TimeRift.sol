@@ -24,34 +24,14 @@ error NotWhitelisted();
 contract TimeRift is ReentrancyGuard, Ownable {
     /// @notice The constructor function initializes the contract.
     /// @dev The constructor function is only called once when the contract is deployed.
-    /// @param _FLASH_ADDRESS The address of the Flash token.
-    /// @param _PSM_ADDRESS The address of the PSM token.
-    /// @param _FLASH_TREASURY The address of the Flash treasury.
-    /// @param _PSM_TREASURY The address of the PSM treasury.
     /// @param _MINIMUM_STAKE_DURATION The minimum stake duration in seconds.
     /// @param _ENERGY_BOLTS_ACCRUAL_RATE The APR rate at which Energy Bolts accrue based on the exchange balance.
     /// @param _WITHDRAW_PENALTY_PERCENT The percentage penalty for withdrawing staked tokens.
     constructor(
-        address _FLASH_ADDRESS,
-        address _PSM_ADDRESS,
-        address _FLASH_TREASURY,
-        address _PSM_TREASURY,
         uint256 _MINIMUM_STAKE_DURATION,
         uint256 _ENERGY_BOLTS_ACCRUAL_RATE,
         uint256 _WITHDRAW_PENALTY_PERCENT
     ) Ownable() {
-        if (_FLASH_ADDRESS == address(0)) {
-            revert InvalidInput();
-        }
-        if (_PSM_ADDRESS == address(0)) {
-            revert InvalidInput();
-        }
-        if (_FLASH_TREASURY == address(0)) {
-            revert InvalidInput();
-        }
-        if (_PSM_TREASURY == address(0)) {
-            revert InvalidInput();
-        }
         if (
             _MINIMUM_STAKE_DURATION < 2592000 ||
             _MINIMUM_STAKE_DURATION > 31536000
@@ -67,13 +47,12 @@ contract TimeRift is ReentrancyGuard, Ownable {
             revert InvalidInput();
         }
 
-        FLASH_ADDRESS = _FLASH_ADDRESS;
-        PSM_ADDRESS = _PSM_ADDRESS;
-        FLASH_TREASURY = _FLASH_TREASURY;
-        PSM_TREASURY = _PSM_TREASURY;
         MINIMUM_STAKE_DURATION = _MINIMUM_STAKE_DURATION;
         ENERGY_BOLTS_ACCRUAL_RATE = _ENERGY_BOLTS_ACCRUAL_RATE;
         WITHDRAW_PENALTY_PERCENT = _WITHDRAW_PENALTY_PERCENT;
+        whitelist[PSM_TREASURY] = true;
+
+        emit WhitelistAdded(PSM_TREASURY);
     }
 
     // ============================================
@@ -81,10 +60,14 @@ contract TimeRift is ReentrancyGuard, Ownable {
     // ============================================
     using SafeERC20 for IERC20;
 
-    address public immutable FLASH_ADDRESS;
-    address public immutable PSM_ADDRESS;
-    address public immutable FLASH_TREASURY;
-    address public immutable PSM_TREASURY;
+    address public constant FLASH_ADDRESS =
+        0xc628534100180582E43271448098cb2c185795BD;
+    address public constant PSM_ADDRESS =
+        0x17A8541B82BF67e10B0874284b4Ae66858cb1fd5;
+    address public constant FLASH_TREASURY =
+        0xEeB3f4E245aC01792ECd549d03b91541BC800b31;
+    address public constant PSM_TREASURY =
+        0xAb845D09933f52af5642FC87Dd8FBbf553fd7B33;
 
     uint256 public immutable MINIMUM_STAKE_DURATION;
     uint256 public immutable ENERGY_BOLTS_ACCRUAL_RATE;
@@ -140,12 +123,10 @@ contract TimeRift is ReentrancyGuard, Ownable {
         if (_amount == 0) {
             revert InvalidInput();
         }
+
         uint256 available_PSM = getAvailablePSM();
-        if (available_PSM == 0) {
-            revert InsufficientRewards();
-        }
         if (_amount > available_PSM) {
-            _amount = available_PSM;
+            revert InsufficientRewards();
         }
 
         /// @dev Collect the user's energy bolts.
@@ -214,7 +195,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
         uint256 time = block.timestamp;
         uint256 energyBoltsCollected = ((time - userStake.lastCollectTime) *
-            userStake.stakedTokens *
+            userStake.exchangeBalance *
             ENERGY_BOLTS_ACCRUAL_RATE) / (100 * SECONDS_PER_YEAR);
 
         userStake.lastCollectTime = time;
@@ -256,20 +237,15 @@ contract TimeRift is ReentrancyGuard, Ownable {
         /// @dev Collect the user's energy bolts.
         _collectEnergyBolts(msg.sender);
 
-        /// @dev Check if the user has a positive balance of Energy Bolts
+        /// @dev Check if the user has sufficient energy bolts
         Stake storage userStake = stakes[msg.sender];
-        if (userStake.energyBolts == 0) {
-            revert InsufficientEnergyBolts();
-        }
-
-        /// @dev Check if the user has sufficient energy bolts & adjust input.
         if (userStake.energyBolts < _amount) {
-            _amount = userStake.energyBolts;
+            revert InsufficientEnergyBolts();
         }
 
         /// @dev Calculate the correct amount of exchange balance increase and distributed tokens.
         /// @dev The increase of the user's exchange balance has priority over distributing tokens to the destination.
-        if (available_PSM <= _amount * 2) {
+        if (available_PSM < _amount * 2) {
             if (available_PSM <= _amount) {
                 userStake.exchangeBalance += available_PSM;
                 exchangeBalanceTotal += available_PSM;
@@ -350,6 +326,13 @@ contract TimeRift is ReentrancyGuard, Ownable {
     /// @dev The function updates the whitelist mapping.
     /// @param _destination The address to add to the whitelist.
     function addToWhitelist(address _destination) external onlyOwner {
+        if (whitelist[_destination]) {
+            revert InvalidInput();
+        }
+        if (_destination == address(0)) {
+            revert InvalidInput();
+        }
+
         whitelist[_destination] = true;
 
         emit WhitelistAdded(_destination);
@@ -359,6 +342,10 @@ contract TimeRift is ReentrancyGuard, Ownable {
     /// @dev The function updates the whitelist mapping.
     /// @param _destination The address to remove from the whitelist.
     function removeFromWhitelist(address _destination) external onlyOwner {
+        if (!whitelist[_destination]) {
+            revert InvalidInput();
+        }
+
         whitelist[_destination] = false;
 
         emit WhitelistRemoved(_destination);
@@ -407,7 +394,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
         uint256 time = block.timestamp;
         uint256 energyBoltsCollected = ((time - userStake.lastCollectTime) *
-            userStake.stakedTokens *
+            userStake.exchangeBalance *
             ENERGY_BOLTS_ACCRUAL_RATE) / (100 * SECONDS_PER_YEAR);
 
         userEnergyBolts = userStake.energyBolts + energyBoltsCollected;
