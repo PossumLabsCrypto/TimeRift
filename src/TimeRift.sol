@@ -220,9 +220,6 @@ contract TimeRift is ReentrancyGuard, Ownable {
         if (_amount == 0) {
             revert InvalidInput();
         }
-        if (_destination == address(0)) {
-            revert InvalidInput();
-        }
         if (!whitelist[_destination]) {
             revert NotWhitelisted();
         }
