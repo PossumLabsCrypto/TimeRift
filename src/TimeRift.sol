@@ -16,6 +16,7 @@ error InsufficientEnergyBolts();
 error InsufficientExchangeBalance();
 error MinimumStakeTime();
 error NotWhitelisted();
+error NoStake();
 
 /// @title TimeRift
 /// @dev This contract allows users to stake, unstake, exchange and distribute tokens.
@@ -77,6 +78,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
     uint256 public stakedTokensTotal;
     uint256 public PSM_distributed;
+    uint256 public PSM_forfeited;
     uint256 public exchangeBalanceTotal;
 
     struct Stake {
@@ -155,12 +157,12 @@ contract TimeRift is ReentrancyGuard, Ownable {
 
     /// @notice Withdraws staked tokens for the user.
     /// @dev The function calculates the penalty for withdrawing staked tokens and updates the user's stake.
-    function withdrawAndExit() external nonReentrant {
+    function withdrawFlashWithPenalty() external nonReentrant {
         /// @dev Read the user's stake into storage and check if amount is larger than zero.
         Stake storage userStake = stakes[msg.sender];
         uint256 userStakedTokens = userStake.stakedTokens;
         if (userStakedTokens == 0) {
-            revert InvalidOutput();
+            revert NoStake();
         }
 
         /// @dev Calculate the withdrawal penalty and amounts of tokens to be sent out by the contract.
@@ -171,6 +173,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         /// @dev Update the global and user specific staking information.
         stakedTokensTotal -= userStakedTokens;
         exchangeBalanceTotal -= userExchangeBalance;
+        PSM_forfeited += userExchangeBalance;
         delete stakes[msg.sender];
 
         /// @dev Transfer the staked token to the user and the penalty to the external destination
