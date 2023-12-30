@@ -89,8 +89,8 @@ contract TimeRift is ReentrancyGuard, Ownable {
         uint256 exchangeBalance;
     }
 
-    mapping(address => Stake) public stakes;
-    mapping(address => bool) public whitelist;
+    mapping(address user => Stake) public stakes;
+    mapping(address => bool allowed) public whitelist;
 
     // ============================================
     // ==                 EVENTS                 ==
@@ -145,11 +145,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
         exchangeBalanceTotal += _amount;
 
         /// @dev Transfer the staked token fro the user to the contract.
-        IERC20(FLASH_ADDRESS).safeTransferFrom(
-            msg.sender,
-            address(this),
-            _amount
-        );
+        IERC20(FLASH_ADDRESS).transferFrom(msg.sender, address(this), _amount);
 
         /// @dev Emit the event that tokens have been staked successfully.
         emit TokenStaked(msg.sender, _amount);
@@ -177,11 +173,11 @@ contract TimeRift is ReentrancyGuard, Ownable {
         delete stakes[msg.sender];
 
         /// @dev Transfer the staked token to the user and the penalty to the external destination
-        IERC20(FLASH_ADDRESS).safeTransfer(msg.sender, withdrawAmount);
-        IERC20(FLASH_ADDRESS).safeTransfer(FLASH_TREASURY, penalty);
+        IERC20(FLASH_ADDRESS).transfer(msg.sender, withdrawAmount);
+        IERC20(FLASH_ADDRESS).transfer(FLASH_TREASURY, penalty);
 
         /// @dev Transfer the accumulated exchange balance in PSM to the Possum Treasury.
-        IERC20(PSM_ADDRESS).safeTransfer(PSM_TREASURY, userExchangeBalance);
+        IERC20(PSM_ADDRESS).transfer(PSM_TREASURY, userExchangeBalance);
 
         /// @dev Emit the event that a user has withdrawn their stake.
         emit TokenWithdrawn(msg.sender, userStakedTokens);
@@ -264,7 +260,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
                 exchangeBalanceTotal += _amount;
                 userStake.energyBolts -= _amount;
                 PSM_distributed += rest;
-                IERC20(PSM_ADDRESS).safeTransfer(_destination, rest);
+                IERC20(PSM_ADDRESS).transfer(_destination, rest);
 
                 emit EnergyBoltsDistributed(
                     msg.sender,
@@ -278,7 +274,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
             exchangeBalanceTotal += _amount;
             userStake.energyBolts -= _amount;
             PSM_distributed += _amount;
-            IERC20(PSM_ADDRESS).safeTransfer(_destination, _amount);
+            IERC20(PSM_ADDRESS).transfer(_destination, _amount);
 
             emit EnergyBoltsDistributed(
                 msg.sender,
@@ -312,8 +308,8 @@ contract TimeRift is ReentrancyGuard, Ownable {
         delete stakes[msg.sender];
 
         /// @dev Transfer the staked token to the external destination and PSM to the user.
-        IERC20(FLASH_ADDRESS).safeTransfer(FLASH_TREASURY, stakedTokens);
-        IERC20(PSM_ADDRESS).safeTransfer(msg.sender, exchangeBalance);
+        IERC20(FLASH_ADDRESS).transfer(FLASH_TREASURY, stakedTokens);
+        IERC20(PSM_ADDRESS).transfer(msg.sender, exchangeBalance);
 
         /// @dev Emit the event that the exchange was successful.
         emit Exchanged(msg.sender, exchangeBalance);
@@ -368,7 +364,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
             revert InvalidOutput();
         }
 
-        IERC20(_token).safeTransfer(msg.sender, balance);
+        IERC20(_token).transfer(msg.sender, balance);
     }
 
     // ============================================
@@ -398,15 +394,5 @@ contract TimeRift is ReentrancyGuard, Ownable {
             ENERGY_BOLTS_ACCRUAL_RATE) / (100 * SECONDS_PER_YEAR);
 
         userEnergyBolts = userStake.energyBolts + energyBoltsCollected;
-    }
-
-    /// @notice Gets the balance of a token in the contract.
-    /// @dev The function retrieves the balance of a token.
-    /// @param _token The address of the token.
-    /// @return balance The balance of the token.
-    function getBalanceOfToken(
-        address _token
-    ) external view returns (uint256 balance) {
-        balance = IERC20(_token).balanceOf(address(this));
     }
 }
