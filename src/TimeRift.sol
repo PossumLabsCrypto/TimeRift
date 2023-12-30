@@ -364,7 +364,7 @@ contract TimeRift is ReentrancyGuard, Ownable {
             revert InvalidOutput();
         }
 
-        IERC20(_token).transfer(msg.sender, balance);
+        IERC20(_token).safeTransfer(msg.sender, balance);
     }
 
     // ============================================
